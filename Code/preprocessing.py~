@@ -9,7 +9,7 @@ from skimage import measure, morphology
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 # Some constants 
-INPUT_FOLDER = '../input/sample_images/'
+INPUT_FOLDER = '../Data/sample_images/'
 patients = os.listdir(INPUT_FOLDER)
 patients.sort()
 
@@ -51,17 +51,6 @@ def get_pixels_hu(slices):
     
     return np.array(image, dtype=np.int16)
 
-first_patient = load_scan(INPUT_FOLDER + patients[0])
-first_patient_pixels = get_pixels_hu(first_patient)
-plt.hist(first_patient_pixels.flatten(), bins=80, color='c')
-plt.xlabel("Hounsfield Units (HU)")
-plt.ylabel("Frequency")
-plt.show()
-
-# Show some slice in the middle
-plt.imshow(first_patient_pixels[80], cmap=plt.cm.gray)
-plt.show()
-
 def resample(image, scan, new_spacing=[1,1,1]):
     # Determine current pixel spacing
     spacing = np.array([scan[0].SliceThickness] + scan[0].PixelSpacing, dtype=np.float32)
@@ -75,10 +64,6 @@ def resample(image, scan, new_spacing=[1,1,1]):
     image = scipy.ndimage.interpolation.zoom(image, real_resize_factor, mode='nearest')
     
     return image, new_spacing
-
-pix_resampled, spacing = resample(first_patient_pixels, first_patient, [1,1,1])
-print("Shape before resampling\t", first_patient_pixels.shape)
-print("Shape after resampling\t", pix_resampled.shape)
 
 def plot_3d(image, threshold=-300):
     
@@ -103,7 +88,7 @@ def plot_3d(image, threshold=-300):
 
     plt.show()
 
-plot_3d(pix_resampled, 400)
+
 
 def largest_label_volume(im, bg=-1):
     vals, counts = np.unique(im, return_counts=True)
@@ -179,3 +164,19 @@ def zero_center(image):
     image = image - PIXEL_MEAN
     return image
 
+first_patient = load_scan(INPUT_FOLDER + patients[0])
+first_patient_pixels = get_pixels_hu(first_patient)
+plt.hist(first_patient_pixels.flatten(), bins=80, color='c')
+plt.xlabel("Hounsfield Units (HU)")
+plt.ylabel("Frequency")
+plt.show()
+
+# Show some slice in the middle
+plt.imshow(first_patient_pixels[80], cmap=plt.cm.gray)
+plt.show()
+
+pix_resampled, spacing = resample(first_patient_pixels, first_patient, [1,1,1])
+print("Shape before resampling\t", first_patient_pixels.shape)
+print("Shape after resampling\t", pix_resampled.shape)
+
+plot_3d(pix_resampled, 400)
