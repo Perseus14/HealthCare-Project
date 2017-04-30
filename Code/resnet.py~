@@ -1,0 +1,189 @@
+import numpy as np
+import dicom
+import glob
+from matplotlib import pyplot as plt
+import os
+import cv2
+import mxnet as mx
+import pandas as pd
+from sklearn import cross_validation
+import xgboost as xgb
+import math
+
+folder_names_train=[]
+folder_names_test=[]
+
+def get_extractor():
+    model = mx.model.FeedForward.load('../Data/Resnet/resnet-50', 0, ctx=mx.cpu(), numpy_batch_size=1)
+    fea_symbol = model.symbol.get_internals()["flatten0_output"]
+    feature_extractor = mx.model.FeedForward(ctx=mx.cpu(), symbol=fea_symbol, numpy_batch_size=64,
+                                             arg_params=model.arg_params, aux_params=model.aux_params,
+                                             allow_extra_params=True)
+
+    return feature_extractor
+
+
+def get_3d_data(path):
+    slices = [dicom.read_file(path + '/' + s) for s in os.listdir(path)]
+    slices.sort(key=lambda x: int(x.InstanceNumber))
+    return np.stack([s.pixel_array for s in slices])
+
+
+def get_data_id(path):
+    sample_image = get_3d_data(path)
+    sample_image[sample_image == -2000] = 0
+    # f, plots = plt.subplots(4, 5, sharex='col', sharey='row', figsize=(10, 8))
+
+    batch = []
+    cnt = 0
+    dx = 40
+    ds = 512
+    for i in range(0, sample_image.shape[0] - 3, 3):
+        tmp = []
+        for j in range(3):
+            img = sample_image[i + j]
+            img = 255.0 / np.amax(img) * img
+            img = cv2.equalizeHist(img.astype(np.uint8))
+            img = img[dx: ds - dx, dx: ds - dx]
+            img = cv2.resize(img, (224, 224))
+            tmp.append(img)
+
+        tmp = np.array(tmp)
+        batch.append(np.array(tmp))
+
+        # if cnt < 20:
+        #     plots[cnt // 5, cnt % 5].axis('off')
+        #     plots[cnt // 5, cnt % 5].imshow(np.swapaxes(tmp, 0, 2))
+        # cnt += 1
+
+    # plt.show()
+    batch = np.array(batch)
+    return batch
+
+
+def calc_features():
+    net = get_extractor()
+    for folder in glob.glob('../Data/stage1/*'):
+        batch = get_data_id(folder)
+        feats = net.predict(batch)
+        print(feats.shape)
+        np.save(folder, feats)
+        #folder_names_train.append(folder.split('/')[-1].split('.')[0])
+    '''  
+    for folder in glob.glob('../Data/stage1_sample/test/*'):
+        batch = get_data_id(folder)
+        feats = net.predict(batch)
+        print(feats.shape)
+        np.save(folder, feats)
+        #folder_names_test.append(folder.split('/')[-1].split('.')[0])      
+    '''	
+def folder_names():
+    if(folder_names_train==[]):
+        for folder in glob.glob('../Data/stage1/*.npy'):
+            folder_names_train.append(folder.split('/')[-1].split('.')[0])
+    if(folder_names_test==[]):
+        for folder in glob.glob('../Data/stage1_sample/test2/*.npy'):
+            folder_names_test.append(folder.split('/')[-1].split('.')[0])  	
+
+
+def train_xgboost():
+    df = pd.read_csv('../Data/stage1_labels.csv', index_col=0)
+    #print(df.head())
+
+    #x = np.array([np.mean(np.load('../Data/sample_images/%s.npy' % str(id)), axis=0) for id in df['id'].tolist()])
+    x = np.array([np.mean(np.load('../Data/stage1/%s.npy' % str(id)), axis=0) for id in folder_names_train])
+    #y = df['cancer'].as_matrix()
+    y=np.array([])
+    t=0
+    z=np.array([])
+    for ind in range(len(folder_names_train)):
+        try:
+            temp = df.get_value(str(folder_names_train[ind]),'cancer')
+            y=np.append(y,temp)
+        except Exception as e:
+            t+=1 
+            print t,str(e),"Label Not found, deleting entry"
+            y=np.append(y,0)
+            #x = np.delete(x, ind) 
+        #print type(y[0])
+	#y = np.asarray(y)
+    print y.shape
+    print x.shape
+    trn_x, val_x, trn_y, val_y = cross_validation.train_test_split(x, y, random_state=42,stratify=y,                                                                test_size=0.20)
+
+    clf = xgb.XGBRegressor(max_depth=10,
+                           n_estimators=1500,
+                           min_child_weight=9,
+                           learning_rate=0.05,
+                           nthread=8,
+                           subsample=0.80,
+                           colsample_bytree=0.80,
+                           seed=4242)
+
+    clf.fit(trn_x, trn_y, eval_set=[(val_x, val_y)], verbose=True, eval_metric='logloss', early_stopping_rounds=50)
+    return clf
+
+
+def make_submit():
+    clf = train_xgboost()
+
+    #df = pd.read_csv('../Data/stage1_sample_submission.csv')
+    df = pd.read_csv('../Data/stage1_labels.csv', index_col=0)
+    #x = np.array([np.mean(np.load('../Data/sample_images/%s.npy' % str(id)), axis=0) for id in df['id'].tolist()])
+    x = np.array([np.mean(np.load('../Data/stage1_sample/test2/%s.npy' % str(id)), axis=0) for id in folder_names_test])
+    y=np.array([])
+    #t=0
+    for file1 in folder_names_test:
+        try:
+            temp = df.get_value(str(file1),'cancer')
+            y=np.append(y,temp)
+        except Exception as e:
+            #t+=1 
+            #print t,str(e)
+            #y=np.append(y,0)
+            print str(e),"Label Not found, deleting entry"
+            pass 
+    print y.shape
+    print x.shape    
+    pred = clf.predict(x)
+    print pred
+    acc_count=0
+    c_c_count=0
+    ic_c_count=0
+    c_ic_count=0
+    ic_ic_count=0     
+    true_count=0
+    false_count=0
+    print type(pred)
+    for x in y:
+        if x == 1:
+            true_count+=1
+        if x == 0:
+            false_count+=1
+    for x in range(len(pred)):
+        print "Prediction of Patient",folder_names_test[x],"is",pred[x]," and actual is",y[x],"\n"
+        if(pred[x]>=0.3 and int(y[x])==1) or(pred[x]<0.3 and int(y[x])==0):
+            acc_count+=1
+        if(pred[x]>=0.3 and int(y[x])==1):
+            c_c_count+=1
+        if(pred[x]<0.3 and int(y[x])==0):
+            ic_c_count+=1
+        if(pred[x]>=0.3 and int(y[x])==0):
+            c_ic_count+=1
+        if(pred[x]<0.3 and int(y[x])==1):
+            ic_ic_count+=1
+	#print acc_count,c_c_count,ic_c_count,c_ic_count,ic_ic_count
+    print "Accuracy =",(acc_count/float(len(pred)))*100
+    print "Correct prediction for cancer =",(c_c_count/float(true_count))*100  
+    print "Wrong prediction for cancer =",(c_ic_count/float(true_count))*100  
+    print "Correct prediction for no cancer =",(ic_c_count/float(false_count))*100  
+    print "Wrong prediction for no cancer =",(ic_ic_count/float(false_count))*100  
+    #df['cancer'] = pred
+    #df.to_csv('subm1.csv', index=False)
+    #print(df.head())
+
+
+if __name__ == '__main__':
+    #calc_features()
+    folder_names()
+    make_submit()
