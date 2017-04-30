@@ -162,15 +162,15 @@ def make_submit():
             false_count+=1
     for x in range(len(pred)):
         print "Prediction of Patient",folder_names_test[x],"is",pred[x]," and actual is",y[x],"\n"
-        if(int(round(pred[x],0))==int(y[x])):
+        if(pred[x]>=0.27 and int(y[x])==1) or(pred[x]<0.27 and int(y[x])==0):
             acc_count+=1
-        if(int(round(pred[x],0))==int(y[x])==1):
+        if(pred[x]>=0.27 and int(y[x])==1):
             c_c_count+=1
-        if(int(round(pred[x],0))==int(y[x])==0):
+        if(pred[x]<0.27 and int(y[x])==0):
             ic_c_count+=1
-        if(int(round(pred[x],0))!=int(y[x]) and int(round(pred[x],0)) == 1):
+        if(pred[x]>=0.27 and int(y[x])==0):
             c_ic_count+=1
-        if(int(round(pred[x],0))!=int(y[x]) and int(round(pred[x],0)) == 0):
+        if(pred[x]<0.27 and int(y[x])==1):
             ic_ic_count+=1
 	#print acc_count,c_c_count,ic_c_count,c_ic_count,ic_ic_count
     print "Accuracy =",(acc_count/float(len(pred)))*100
